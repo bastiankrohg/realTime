@@ -114,6 +114,7 @@ private:
         
     /**
      * @brief Thread receiving data from monitor.
+     * Ajout de fonctionnalité 5
      */
     void ReceiveFromMonTask(void *arg);
     
