@@ -1,7 +1,8 @@
 # Dumber
 
 Répértoire cloné à partir de https://github.com/INSA-GEI/dumber.git pour rendu de projet de temps réel
-Axel Pinel, Karine Marché et Bastian Krohg
+
+De Axel Pinel, Karine Marché et Bastian Krohg
 4ème Année AE-Système Embarqué INSA de Toulouse
 
 Depot du projet de temps reel 4eme année au departement GEI de l'INSA Toulouse.
