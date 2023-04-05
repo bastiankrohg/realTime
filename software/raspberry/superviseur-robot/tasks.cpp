@@ -365,12 +365,34 @@ void Tasks::MoveTask(void *arg) {
     /* The task starts here                                                               */
     /**************************************************************************************/
     rt_task_set_periodic(NULL, TM_NOW, 100000000);
-
+    unsigned int compteur = 0;
     while (1) {
+        /********Fonctionnalité 8 - Compteur à 3*********/
+        Message * msgSend = robot.Write(robot.StartWithoutWD());
+        if (msgSend->GetID() == MESSAGE_ANSWER_ACK){
+            compteur = 0;
+        } else {
+            compteur++;
+        }
+        /****END Fonctionnalité 8****/
+        /********Fonctionnalité 9 - msg à monitor et r-à-z à un état initial*********/
+        if (compteur == 3){
+            rs = robotStarted;
+        } else {
+            compteur = 0;
+            //Retour à état initial
+            rs = 0;
+            //Message pour avertir monitor
+            monitor.Write(MESSAGE_MONITOR_LOST);
+            //Fermer
+            robot.Close();
+        }
+        /****END Fonctionnalité 9****/
+
         rt_task_wait_period(NULL);
         cout << "Periodic movement update";
         rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
-        rs = robotStarted;
+
         rt_mutex_release(&mutex_robotStarted);
         if (rs == 1) {
             rt_mutex_acquire(&mutex_move, TM_INFINITE);
