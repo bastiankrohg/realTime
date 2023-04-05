@@ -261,7 +261,11 @@ void Tasks::ReceiveFromMonTask(void *arg) {
 
         if (msgRcv->CompareID(MESSAGE_MONITOR_LOST)) {
             delete(msgRcv);
-            exit(-1);
+            /****Fonctionnalité 5 - detection de perte de comm. avec moniteur****/
+            cout << "Lost communication with monitor" << endl;
+            monitor.AcceptClient(); //Wait for client to connect
+            //exit(-1); //we no longer want to quit right away, we wait until another monitor connects
+            /****END Fonctionnalité 5****/
         } else if (msgRcv->CompareID(MESSAGE_ROBOT_COM_OPEN)) {
             rt_sem_v(&sem_openComRobot);
         } else if (msgRcv->CompareID(MESSAGE_ROBOT_START_WITHOUT_WD)) {
