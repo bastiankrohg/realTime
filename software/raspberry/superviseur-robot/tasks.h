@@ -36,6 +36,10 @@
 
 using namespace std;
 
+//Fonctionnalité 11
+extern int WD; //1 if WD enabled, else 0
+
+
 class Tasks {
 public:
     /**

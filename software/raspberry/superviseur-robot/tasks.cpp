@@ -269,6 +269,10 @@ void Tasks::ReceiveFromMonTask(void *arg) {
         } else if (msgRcv->CompareID(MESSAGE_ROBOT_COM_OPEN)) {
             rt_sem_v(&sem_openComRobot);
         } else if (msgRcv->CompareID(MESSAGE_ROBOT_START_WITHOUT_WD)) {
+            WD = 0;
+            rt_sem_v(&sem_startRobot);
+        } else if (msgRcv->CompareID(MESSAGE_ROBOT_START_WITH_WD)) {
+            WD = 1;
             rt_sem_v(&sem_startRobot);
         } else if (msgRcv->CompareID(MESSAGE_ROBOT_GO_FORWARD) ||
                 msgRcv->CompareID(MESSAGE_ROBOT_GO_BACKWARD) ||
@@ -328,7 +332,18 @@ void Tasks::StartRobotTask(void *arg) {
     /**************************************************************************************/
     /* The task startRobot starts here                                                    */
     /**************************************************************************************/
+
     while (1) {
+
+    /*******Fonctionnalité 11 - Demarrage avec WD*******/
+    /*
+    if (WD = 1){
+        //demarrage avec WD
+    } else {
+        //demarrage sans WD
+    }
+    */
+    /*******END Fonctionnalité 11********/
 
         Message * msgSend;
         rt_sem_p(&sem_startRobot, TM_INFINITE);
