@@ -36,10 +36,6 @@
 
 using namespace std;
 
-//Fonctionnalité 11
-extern int WD; //1 if WD enabled, else 0
-
-
 class Tasks {
 public:
     /**
@@ -118,7 +114,6 @@ private:
         
     /**
      * @brief Thread receiving data from monitor.
-     * Ajout de fonctionnalité 5
      */
     void ReceiveFromMonTask(void *arg);
     

@@ -38,6 +38,8 @@ typedef struct {
 	int32_t motor_right;
 	char endOfMouvement;
 	char powerOffRequired;
+	uint16_t senderAddress;
+	uint8_t rfProblem;
 
 } APPLICATION_Infos;
 
@@ -67,7 +69,7 @@ void LEDS_Tests();
 void APPLICATION_MainThread(void* params);
 void APPLICATION_TimeoutThread(void* params);
 void APPLICATION_StateMachine();
-LEDS_State APPLICATION_BatteryLevel(uint16_t voltage, char inCharge);
+LEDS_State APPLICATION_BatteryLevel(uint8_t voltage, APPLICATION_State state);
 void APPLICATION_PowerOff();
 void APPLICATION_TransitionToNewState(APPLICATION_State new_state);
 
@@ -112,8 +114,8 @@ void APPLICATION_Init(void) {
 
 void APPLICATION_MainThread(void* params) {
 	MESSAGE_Typedef msg;
+	XBEE_INCOMING_FRAME *xbeeFrame;
 
-	char *cmd;
 	CMD_Generic* decodedCmd;
 
 	while (1) {
@@ -121,54 +123,74 @@ void APPLICATION_MainThread(void* params) {
 
 		switch (msg.id) {
 		case MSG_ID_XBEE_CMD:
-			cmd = (char*)msg.data;
-			decodedCmd = cmdDecode(cmd);
+			xbeeFrame = (XBEE_INCOMING_FRAME*)msg.data;
 
-			if (decodedCmd==CMD_DECODE_UNKNOWN)
-				cmdSendAnswer(ANS_UNKNOWN);
-			else {
-				systemInfos.cmd = decodedCmd->type;
-				systemTimeout.inactivityCnt = 0;
+			if (xbeeFrame != NULL) {
+				systemInfos.senderAddress = xbeeFrame->source_addr;
 
-				/* Manage answer to command, when possible
-				 * (further treatment of the command will be done in APPLICATION_StateMachine) */
-				switch (decodedCmd->type) {
-				case CMD_PING:
-				case CMD_TEST:
-				case CMD_DEBUG:
-				case CMD_POWER_OFF:
-					cmdSendAnswer(ANS_OK);
+				switch (xbeeFrame->type) {
+				case XBEE_RX_16BIT_PACKET_TYPE:
+					decodedCmd = cmdDecode(xbeeFrame->data,xbeeFrame->length);
+
+					if (decodedCmd==CMD_DECODE_UNKNOWN)
+						cmdSendAnswer(systemInfos.senderAddress, ANS_UNKNOWN);
+					else {
+						systemInfos.cmd = decodedCmd->type;
+						systemTimeout.inactivityCnt = 0;
+
+						/* Manage answer to command, when possible
+						 * (further treatment of the command will be done in APPLICATION_StateMachine) */
+						switch (decodedCmd->type) {
+						case CMD_PING:
+						case CMD_TEST:
+						case CMD_DEBUG:
+						case CMD_POWER_OFF:
+							cmdSendAnswer(systemInfos.senderAddress, ANS_OK);
+							break;
+						case CMD_GET_BATTERY:
+							cmdSendBatteryLevel(systemInfos.senderAddress, systemInfos.batteryVoltage);
+							break;
+						case CMD_GET_VERSION:
+							cmdSendVersion(SYSTEM_VERSION);
+							break;
+						case CMD_GET_BUSY_STATE:
+							if (systemInfos.state == stateInMouvement)
+								cmdSendBusyState(systemInfos.senderAddress, 0x1);
+							else
+								cmdSendBusyState(systemInfos.senderAddress, 0x0);
+							break;
+						case CMD_MOVE:
+							systemInfos.distance = ((CMD_Move*)decodedCmd)->distance;
+							break;
+						case CMD_TURN:
+							systemInfos.turns = ((CMD_Turn*)decodedCmd)->turns;
+							break;
+						default:
+							/* All others commands must be processed in state machine
+							 * in order to find what action to do and what answer to give
+							 */
+							break;
+						}
+						free(decodedCmd);
+					}
 					break;
-				case CMD_GET_BATTERY:
-					cmdSendBatteryLevel(systemInfos.batteryVoltage);
+
+				case XBEE_TX_STATUS_TYPE:
+					if (xbeeFrame->ack == 0) {
+						if (systemInfos.rfProblem !=0)
+							systemInfos.rfProblem--;
+					} else {
+						if (systemInfos.rfProblem !=255)
+							systemInfos.rfProblem++;
+					}
 					break;
-				case CMD_GET_VERSION:
-					cmdSendVersion(SYSTEM_VERSION);
-					break;
-				case CMD_GET_BUSY_STATE:
-					if (systemInfos.state == stateInMouvement)
-						cmdSendBusyState(0x1);
-					else
-						cmdSendBusyState(0x0);
-					break;
-				case CMD_MOVE:
-					systemInfos.distance = ((CMD_Move*)decodedCmd)->distance;
-					break;
-				case CMD_TURN:
-					systemInfos.turns = ((CMD_Turn*)decodedCmd)->turns;
-					break;
+
 				default:
-					/* All others commands must be processed in state machine
-					 * in order to find what action to do and what answer to give
-					 */
 					break;
 				}
 
-				free(decodedCmd);
+				free(xbeeFrame);
 			}
-
-			free(cmd);
-
 			break;
 
 		case MSG_ID_BAT_NIVEAU:
@@ -209,15 +231,16 @@ void APPLICATION_StateMachine() {
 	if (systemInfos.powerOffRequired)
 		APPLICATION_PowerOff(); // system will halt here
 
-	if (systemInfos.inCharge) {
+	if ((systemInfos.inCharge) && (systemInfos.state != stateInCharge)) {
 		APPLICATION_TransitionToNewState(stateInCharge);
 	}
 
 	if (systemInfos.batteryUpdate) {
+		ledState = APPLICATION_BatteryLevel(systemInfos.batteryVoltage, systemInfos.state);
+
 		if (ledState == leds_niveau_bat_0)
 			APPLICATION_TransitionToNewState(stateLowBatDisable);
 		else if (systemInfos.state==stateStartup) {
-			ledState = APPLICATION_BatteryLevel(systemInfos.batteryVoltage, systemInfos.inCharge);
 			MESSAGE_SendMailbox(LEDS_Mailbox, MSG_ID_LED_ETAT, APPLICATION_Mailbox, (void*)&ledState);
 		}
 	}
@@ -232,16 +255,16 @@ void APPLICATION_StateMachine() {
 					(systemInfos.state == stateRun) ||
 					(systemInfos.state == stateInMouvement)) {
 				/* command RESET is only applicable in those 3 states, otherwise it is rejected */
-				cmdSendAnswer(ANS_OK);
+				cmdSendAnswer(systemInfos.senderAddress, ANS_OK);
 				APPLICATION_TransitionToNewState(stateIdle);
 			} else
-				cmdSendAnswer(ANS_ERR);
+				cmdSendAnswer(systemInfos.senderAddress, ANS_ERR);
 			break;
 		case CMD_START_WITH_WATCHDOG:
 		case CMD_START_WITHOUT_WATCHDOG:
 			if (systemInfos.state == stateIdle) {
 				/* only state where START cmd is accepted */
-				cmdSendAnswer(ANS_OK);
+				cmdSendAnswer(systemInfos.senderAddress, ANS_OK);
 
 				APPLICATION_TransitionToNewState(stateRun);
 
@@ -251,15 +274,15 @@ void APPLICATION_StateMachine() {
 					systemTimeout.watchdogMissedCnt=0;
 				}
 			} else
-				cmdSendAnswer(ANS_ERR);
+				cmdSendAnswer(systemInfos.senderAddress, ANS_ERR);
 			break;
 		case CMD_RESET_WATCHDOG:
 			if ((systemInfos.state == stateRun) || (systemInfos.state == stateInMouvement)) {
 				if ((systemTimeout.watchdogEnabled ==0 ) ||
 						((systemTimeout.watchdogCnt>=APPLICATION_WATCHDOG_MIN) && (systemTimeout.watchdogCnt<=APPLICATION_WATCHDOG_MAX)))
-					cmdSendAnswer(ANS_OK);
+					cmdSendAnswer(systemInfos.senderAddress, ANS_OK);
 				else
-					cmdSendAnswer(ANS_ERR);
+					cmdSendAnswer(systemInfos.senderAddress, ANS_ERR);
 
 				systemTimeout.watchdogCnt =0;
 			}
@@ -271,17 +294,17 @@ void APPLICATION_StateMachine() {
 				if (((systemInfos.cmd == CMD_MOVE) && (systemInfos.distance !=0)) ||
 						((systemInfos.cmd == CMD_TURN) && (systemInfos.turns !=0))) {
 					systemInfos.endOfMouvement = 0;
-					cmdSendAnswer(ANS_OK);
+					cmdSendAnswer(systemInfos.senderAddress, ANS_OK);
 					APPLICATION_TransitionToNewState(stateInMouvement);
 				} // if TURN and MOVE are sent without parameter, do nothing: we are still in run state
 			} else if (systemInfos.state == stateInMouvement) { // in this state, MOVE and TURN cmds are accepted only if they come with no parameter
 				if (((systemInfos.cmd == CMD_MOVE) && (systemInfos.distance ==0)) ||
 						((systemInfos.cmd == CMD_TURN) && (systemInfos.turns ==0))) {
 					systemInfos.endOfMouvement = 1;
-					cmdSendAnswer(ANS_OK);
+					cmdSendAnswer(systemInfos.senderAddress, ANS_OK);
 				}
 			} else
-				cmdSendAnswer(ANS_ERR);
+				cmdSendAnswer(systemInfos.senderAddress, ANS_ERR);
 			break;
 		default: // commands no common for every states
 			break;
@@ -366,41 +389,59 @@ void APPLICATION_TransitionToNewState(APPLICATION_State new_state) {
 	systemInfos.state = new_state;
 }
 
-LEDS_State APPLICATION_BatteryLevel(uint16_t voltage, char inCharge) {
+const uint8_t APPLICATION_NiveauBatteryNormal[5] = {
+	0
+};
+
+const uint8_t APPLICATION_NiveauBatteryCharge[5] = {
+	0
+};
+
+LEDS_State APPLICATION_BatteryLevel(uint8_t voltage,  APPLICATION_State state) {
 	LEDS_State ledState=leds_niveau_bat_0;
 
+	/* TODO: A faire
+	 * Pour l'instant, testons les niveaux de batterie
+	 */
+	ledState = leds_niveau_bat_5;
 	return ledState;
 }
 
 void APPLICATION_PowerOff() {
-	HAL_GPIO_WritePin(SHUTDOWN_GPIO_Port, SHUTDOWN_Pin, GPIO_PIN_RESET);
+	/*
+	 * TODO: a decommenter quand le code sera debuggé
+	 */
+	//HAL_GPIO_WritePin(SHUTDOWN_GPIO_Port, SHUTDOWN_Pin, GPIO_PIN_RESET);
 
 	while (1){
 		__WFE(); // Attente infinie que le regulateur se coupe.
 	}
 }
 
-/* This task is called every 100 ms */
+/*
+ * This task is called every 100 ms
+ * RQ: les constante de temps sont exprimé en ms, d'où la division par 100
+ */
 void vTimerTimeoutCallback( TimerHandle_t xTimer ) {
 	if (systemInfos.state == stateStartup) {
 		systemTimeout.startupCnt++;
-		if (systemTimeout.startupCnt++>=APPLICATION_STARTUP_DELAY)
+		if (systemTimeout.startupCnt++>=(APPLICATION_STARTUP_DELAY/100))
 			APPLICATION_TransitionToNewState(stateIdle);
 	}
 
 	systemTimeout.inactivityCnt++;
-	if (systemTimeout.inactivityCnt>=APPLICATION_INACTIVITY_TIMEOUT)
+	if (systemTimeout.inactivityCnt>=(APPLICATION_INACTIVITY_TIMEOUT/100))
 		/* send a message Button_Pressed to enable power off */
 		MESSAGE_SendMailbox(APPLICATION_Mailbox, MSG_ID_BUTTON_PRESSED, APPLICATION_Mailbox, (void*)NULL);
 
 	if (systemTimeout.watchdogEnabled) {
 		systemTimeout.watchdogCnt++;
 
-		if (systemTimeout.watchdogCnt>APPLICATION_WATCHDOG_MAX) {
+		if (systemTimeout.watchdogCnt>(APPLICATION_WATCHDOG_MAX/100)) {
 			systemTimeout.watchdogCnt=0;
 			systemTimeout.watchdogMissedCnt++;
 
-			if (systemTimeout.watchdogMissedCnt>=APPLICATION_WATCHDOG_MISSED_MAX)
+			if (systemTimeout.watchdogMissedCnt>=(APPLICATION_WATCHDOG_MISSED_MAX/100))
 				APPLICATION_TransitionToNewState(stateWatchdogDisable);
 		}
 	}

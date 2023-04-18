@@ -27,6 +27,7 @@
 #define PRIORITY_TSTARTROBOT 20
 #define PRIORITY_TCAMERA 21
 
+int WD; //if 1 Watchdog enabled else 0
 /*
  * Some remarks:
  * 1- This program is mostly a template. It shows you how to create tasks, semaphore
@@ -261,11 +262,15 @@ void Tasks::ReceiveFromMonTask(void *arg) {
 
         if (msgRcv->CompareID(MESSAGE_MONITOR_LOST)) {
             delete(msgRcv);
-            /****Fonctionnalité 5 - detection de perte de comm. avec moniteur****/
-            cout << "Lost communication with monitor" << endl;
-            monitor.AcceptClient(); //Wait for client to connect
-            //exit(-1); //we no longer want to quit right away, we wait until another monitor connects
-            /****END Fonctionnalité 5****/
+            /////////////////// Fonctionnalité 5 ////////////////////
+            
+            cout << "Lost Communication with monitor, trying to reconnect ... " << endl;          
+            monitor.AcceptClient(); // Wait for Client to connect
+            cout << "Reconnected successfully !" << endl;
+            
+            //exit(-1); no longer
+            //////////////End Fonctionnalité 5 ////////////////////////
+            
         } else if (msgRcv->CompareID(MESSAGE_ROBOT_COM_OPEN)) {
             rt_sem_v(&sem_openComRobot);
         } else if (msgRcv->CompareID(MESSAGE_ROBOT_START_WITHOUT_WD)) {
@@ -274,7 +279,8 @@ void Tasks::ReceiveFromMonTask(void *arg) {
         } else if (msgRcv->CompareID(MESSAGE_ROBOT_START_WITH_WD)) {
             WD = 1;
             rt_sem_v(&sem_startRobot);
-        } else if (msgRcv->CompareID(MESSAGE_ROBOT_GO_FORWARD) ||
+        }  
+        else if (msgRcv->CompareID(MESSAGE_ROBOT_GO_FORWARD) ||
                 msgRcv->CompareID(MESSAGE_ROBOT_GO_BACKWARD) ||
                 msgRcv->CompareID(MESSAGE_ROBOT_GO_LEFT) ||
                 msgRcv->CompareID(MESSAGE_ROBOT_GO_RIGHT) ||
@@ -325,35 +331,50 @@ void Tasks::OpenComRobot(void *arg) {
  * @brief Thread starting the communication with the robot.
  */
 void Tasks::StartRobotTask(void *arg) {
+    Message * msgSend;
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
     // Synchronization barrier (waiting that all tasks are starting)
     rt_sem_p(&sem_barrier, TM_INFINITE);
-    
+    /////////////Fonctionnalité 9/////////
+    rt_mutex_acquire(&mutex_robot, TM_INFINITE); 
+    msgSend=robot.Write(robot.Reset());
+    rt_mutex_release(&mutex_robot);
+    //////////////////////////////////////
     /**************************************************************************************/
     /* The task startRobot starts here                                                    */
     /**************************************************************************************/
-
     while (1) {
 
-    /*******Fonctionnalité 11 - Demarrage avec WD*******/
-    /*
-    if (WD = 1){
-        //demarrage avec WD
-    } else {
-        //demarrage sans WD
-    }
-    */
-    /*******END Fonctionnalité 11********/
-
-        Message * msgSend;
+        
+        ///////////////////////Fonctionnalité 11 ////////////////////////
         rt_sem_p(&sem_startRobot, TM_INFINITE);
-        cout << "Start robot without watchdog (";
-        rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-        msgSend = robot.Write(robot.StartWithoutWD());
-        rt_mutex_release(&mutex_robot);
-        cout << msgSend->GetID();
-        cout << ")" << endl;
-
+        
+        if (WD == 1) {    
+            cout << "Start robot with watchdog (";
+            rt_mutex_acquire(&mutex_robot, TM_INFINITE);
+            msgSend = robot.Write(robot.StartWithWD());
+            rt_mutex_release(&mutex_robot);
+            cout << msgSend->GetID();
+            cout << ")" << endl;
+            rt_task_wait_period(NULL);
+            rt_mutex_acquire(&mutex_robot, TM_INFINITE);
+            msgSend=robot.Write(robot.ReloadWD());
+            rt_mutex_release(&mutex_robot);
+            cout << "Periodic message => (";
+            cout << msgSend->GetID();
+            cout << ")" << endl;
+        } else {     
+            rt_sem_p(&sem_startRobot, TM_INFINITE);
+            cout << "Start robot without watchdog (";
+            rt_mutex_acquire(&mutex_robot, TM_INFINITE);
+            msgSend = robot.Write(robot.StartWithoutWD());
+            rt_mutex_release(&mutex_robot);
+            cout << msgSend->GetID();
+            cout << ")" << endl;
+        }
+        
+         ////////////////////////End Fonctionnalité 11 //////////////////
+        
         cout << "Movement answer: " << msgSend->ToString() << endl << flush;
         WriteInQueue(&q_messageToMon, msgSend);  // msgSend will be deleted by sendToMon
 
@@ -371,6 +392,8 @@ void Tasks::StartRobotTask(void *arg) {
 void Tasks::MoveTask(void *arg) {
     int rs;
     int cpMove;
+    unsigned int compteur=0;
+    Message * msgSend;
     
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
     // Synchronization barrier (waiting that all tasks are starting)
@@ -380,8 +403,20 @@ void Tasks::MoveTask(void *arg) {
     /* The task starts here                                                               */
     /**************************************************************************************/
     rt_task_set_periodic(NULL, TM_NOW, 100000000);
-    unsigned int compteur = 0;
+
     while (1) {
+       
+        /////////////////////Fonctionnalité 11 //////////////////////:
+        if (WD==1){
+            rt_task_wait_period(NULL);
+            rt_mutex_acquire(&mutex_robot, TM_INFINITE);
+            msgSend=robot.Write(robot.ReloadWD());
+            rt_mutex_release(&mutex_robot);
+            cout << "Periodic message => (";
+            cout << msgSend->GetID();
+            cout << ")" << endl;
+        }
+        ////////////////////// End fonctionnalité 11 ////////////////
         rt_task_wait_period(NULL);
         cout << "Periodic movement update";
         rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
@@ -395,33 +430,35 @@ void Tasks::MoveTask(void *arg) {
             cout << " move: " << cpMove;
             
             rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-            //Store last message in a local variable
-            Message * msgSend = robot.Write(new Message((MessageID)cpMove));
+            msgSend = robot.Write(new Message((MessageID)cpMove));
             rt_mutex_release(&mutex_robot);
+            /////////////////// Fonctionnalité 8 /////////////////////
+            if (msgSend->GetID() == MESSAGE_ANSWER_ACK){
+                compteur = 0;            
+            }
+            else {
+                compteur ++;
+            }                       
+            ////////////////// End Fonctionnalité 8 ///////////////////
+            
+            ////////////////// Fonctionnalité 9 //////////////////////
+            if (compteur == 3){
+                //reset to initial state
+                rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
+                robotStarted=0;
+                rt_mutex_release(&mutex_robotStarted);
+                
+                compteur = 0;
+                
+                cout << "Lost Communication between Robot & Supervisor" << endl;
+                //robot.Close(); //N'a pas marché
+                
+            }
+            
+            ///////////////// End Fonctionnalité 9 ///////////////////
         }
-        /********Fonctionnalité 8 - Compteur à 3*********/
+        
 
-        if (msgSend->GetID() == MESSAGE_ANSWER_ACK){
-            compteur = 0;
-        } else {
-            compteur++;
-        }
-        /****END Fonctionnalité 8****/
-        /********Fonctionnalité 9 - msg à monitor et r-à-z à un état initial*********/
-        if (compteur == 3){
-            //Retour à état initial
-            rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
-            robotStarted = 0;
-            rt_mutex_release(&mutex_robotStarted);
-            
-            //compteur = 0;
-            
-            //Message pour avertir monitor
-            cout << "Perte de communication robot superviseur" << endl;
-            //Fermer
-            robot.Close(); 
-        } 
-        /****END Fonctionnalité 9****/
         cout << endl << flush;
     }
 }
