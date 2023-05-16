@@ -64,6 +64,7 @@ private:
     /**********************************************************************/
     ComMonitor monitor;
     ComRobot robot;
+    Camera camera;
     int robotStarted = 0;
     int move = MESSAGE_ROBOT_STOP;
     
@@ -76,6 +77,10 @@ private:
     RT_TASK th_openComRobot;
     RT_TASK th_startRobot;
     RT_TASK th_move;
+    RT_TASK th_reload;
+    RT_TASK th_battery;
+    RT_TASK th_camera;
+    RT_TASK th_searchRobot;
     
     /**********************************************************************/
     /* Mutex                                                              */
@@ -92,6 +97,10 @@ private:
     RT_SEM sem_openComRobot;
     RT_SEM sem_serverOk;
     RT_SEM sem_startRobot;
+    RT_SEM sem_startwithwd;
+    RT_SEM sem_periodicsearchrobot;
+    
+   
 
     /**********************************************************************/
     /* Message queues                                                     */
@@ -148,6 +157,14 @@ private:
      * @return Message read
      */
     Message *ReadInQueue(RT_QUEUE *queue);
+    
+    /****************************************************************/
+    /*Fonctionnalité 11*/
+    void PeriodicReload (void *arg);
+    void PeriodicCheckBattery (void *arg);
+    //fonctionnalité 15
+    void PeriodicImageCamera (void *arg);    
+    void PeriodicSearchRobot(void *arg);
 
 };
 
