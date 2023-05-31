@@ -9,9 +9,11 @@
         <group>
             <file>file:/home/marche/Bureau/TPTempsReel/V2/software/raspberry/superviseur-robot/lib/camera.cpp</file>
             <file>file:/home/marche/Bureau/TPTempsReel/V2/software/raspberry/superviseur-robot/lib/camera.h</file>
+            <file>file:/home/marche/Bureau/TPTempsReel/V2/software/raspberry/superviseur-robot/lib/img.h</file>
             <file>file:/home/marche/Bureau/TPTempsReel/V2/software/raspberry/superviseur-robot/tasks.cpp</file>
             <file>file:/home/marche/Bureau/TPTempsReel/V2/software/raspberry/superviseur-robot/lib/img.cpp</file>
             <file>file:/home/marche/Bureau/TPTempsReel/V2/software/raspberry/superviseur-robot/tasks.h</file>
+            <file>file:/home/marche/Bureau/TPTempsReel/V2/software/raspberry/superviseur-robot/lib/messages.h</file>
         </group>
     </open-files>
 </project-private>

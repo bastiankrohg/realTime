@@ -28,6 +28,7 @@
 #define PRIORITY_TCAMERA 21
 #define PRIORITY_BATTERY 40
 #define PRIORITY_RELOAD 23
+#define PRIORITY_SEARCHROBOT 26
 
 int WD; //if 1 Watchdog enabled else 0
 Arena Arene;
@@ -59,8 +60,10 @@ void Tasks::PeriodicReload(void *arg) {
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
     /////////////////////Fonctionnalité 11 //////////////////////:
     Message * msgSend;
-    rt_task_set_periodic(NULL, TM_NOW, 50 * 1000 * 1000);
+    
     rt_sem_p(&sem_startwithwd, TM_INFINITE);
+    
+    rt_task_set_periodic(NULL, TM_NOW, rt_timer_ns2ticks(1000 * 1000 * 1000));
     while (1) {
 
         rt_task_wait_period(NULL);
@@ -165,7 +168,7 @@ void Tasks::PeriodicImageCamera(void *arg) {
     bool rs;
 
     rt_sem_p(&sem_barrier, TM_INFINITE);
-    rt_task_set_periodic(NULL, TM_NOW, 100 * 1000 * 1000);
+    rt_task_set_periodic(NULL, TM_NOW, 1000 * 1000 * 1000);
 
     while (1) {
         rt_task_wait_period(NULL);
@@ -275,15 +278,15 @@ void Tasks::Init() {
         cerr << "Error task create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
-    if (err = rt_task_create(&th_reload, "th_reload", 0, PRIORITY_RELOAD, 0)) {
+    if (err = rt_task_create(&th_periodicReload, "th_periodicReload", 0, PRIORITY_RELOAD, 0)) {
         cerr << "Error task create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
-    if (err = rt_task_create(&th_camera, "th_camera", 0, PRIORITY_RELOAD, 0)) {
+    if (err = rt_task_create(&th_camera, "th_camera", 0, PRIORITY_TCAMERA, 0)) {
         cerr << "Error task create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
-    if (err = rt_task_create(&th_searchRobot, "th_searchRobot", 0, PRIORITY_RELOAD, 0)) {//PRIO A CHANGER
+    if (err = rt_task_create(&th_searchRobot, "th_searchRobot", 0, PRIORITY_SEARCHROBOT, 0)) {//PRIO A CHANGER
         cerr << "Error task create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
@@ -337,7 +340,7 @@ void Tasks::Run() {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
-    if (err = rt_task_start(&th_reload, (void(*)(void*)) & Tasks::PeriodicReload, this)) {
+    if (err = rt_task_start(&th_periodicReload, (void(*)(void*)) & Tasks::PeriodicReload, this)) {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
@@ -599,12 +602,11 @@ void Tasks::StartRobotTask(void *arg) {
         //////////////////////////////////////
 
         if (WD == 1) {
-            rt_sem_v(&sem_startwithwd);
-
             cout << "Start robot with watchdog (";
             rt_mutex_acquire(&mutex_robot, TM_INFINITE);
             msgSend = robot.Write(robot.StartWithWD());
             rt_mutex_release(&mutex_robot);
+            rt_sem_broadcast(&sem_startwithwd);
             cout << msgSend->GetID();
             cout << ")" << endl;
 
@@ -670,10 +672,12 @@ void Tasks::MoveTask(void *arg) {
             msgSend = robot.Write(new Message((MessageID) cpMove));
             rt_mutex_release(&mutex_robot);
             /////////////////// Fonctionnalité 8 /////////////////////
-            if (msgSend->GetID() == MESSAGE_ANSWER_ACK) {
-                compteur = 0;
-            } else {
+            if ((msgSend->GetID() == MESSAGE_ANSWER_NACK)||(msgSend->GetID() == MESSAGE_ANSWER_ROBOT_ERROR)||(msgSend->GetID() == MESSAGE_ANSWER_ROBOT_TIMEOUT)||(msgSend->GetID() == MESSAGE_ANSWER_COM_ERROR)) {
                 compteur++;
+                cout << "compteur incremente" << endl;
+            } else {
+                compteur = 0;
+                cout << "compteur remis a 0" << endl;
             }
             ////////////////// End Fonctionnalité 8 ///////////////////
 

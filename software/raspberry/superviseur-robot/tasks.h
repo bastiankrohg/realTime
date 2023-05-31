@@ -77,7 +77,7 @@ private:
     RT_TASK th_openComRobot;
     RT_TASK th_startRobot;
     RT_TASK th_move;
-    RT_TASK th_reload;
+    RT_TASK th_periodicReload;
     RT_TASK th_battery;
     RT_TASK th_camera;
     RT_TASK th_searchRobot;
